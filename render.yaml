@@ -1,0 +1,74 @@
+# ============================================================
+# AI Career Intelligence — Render.com Blueprint
+# Deploys: PostgreSQL + FastAPI Backend
+# ============================================================
+
+services:
+  - type: web
+    name: ai-career-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: APP_NAME
+        value: "AI Career Intelligence"
+      - key: API_HOST
+        value: "0.0.0.0"
+      - key: API_PORT
+        value: "8000"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+      # Render provides DATABASE_URL as postgres:// — we rewrite it to asyncpg below
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-career-db
+          property: connectionString
+      - key: DATABASE_ECHO
+        value: "false"
+      # Redis: disabled on free tier (optional caching)
+      - key: REDIS_URL
+        value: ""
+      # ChromaDB: use local persistent directory on free tier
+      - key: CHROMA_HOST
+        value: "localhost"
+      - key: CHROMA_PORT
+        value: "8001"
+      - key: CHROMA_PERSIST_DIR
+        value: "/app/data/chromadb"
+      - key: UPLOAD_DIR
+        value: "/app/data/uploads"
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "10"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: "gemini-2.0-flash"
+      - key: HF_EMBEDDING_MODEL
+        value: "sentence-transformers/all-MiniLM-L6-v2"
+      # Set this AFTER frontend deploys to Vercel (your-app.vercel.app)
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        generateValue: true
+
+databases:
+  - name: ai-career-db
+    plan: free
+    region: oregon
+    databaseName: ai_career_db
+    user: career_user

@@ -17,9 +17,17 @@ from app.config import get_settings
 
 settings = get_settings()
 
+# --- Normalize DATABASE_URL for asyncpg ---
+# Render provides `postgres://` or `postgresql://` — asyncpg requires `postgresql+asyncpg://`
+_db_url = settings.DATABASE_URL
+if _db_url.startswith("postgres://"):
+    _db_url = _db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif _db_url.startswith("postgresql://") and "+asyncpg" not in _db_url:
+    _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 # --- Async Engine ---
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    _db_url,
     echo=settings.DATABASE_ECHO,
     pool_size=20,
     max_overflow=10,
