@@ -1,0 +1,13 @@
+{
+  "name": "ai-career-intelligence",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Career Intelligence Platform - Full Stack",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "backend\\.venv\\Scripts\\uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --app-dir backend",
+    "build": "cd frontend && npm run build",
+    "start": "cd frontend && npm run start"
+  }
+}

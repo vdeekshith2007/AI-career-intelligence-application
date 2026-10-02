@@ -21,6 +21,11 @@ router = APIRouter()
 
 
 @router.get(
+    "",
+    response_model=list[JobListItem],
+    include_in_schema=False,
+)
+@router.get(
     "/",
     response_model=list[JobListItem],
     summary="Search and list jobs",
