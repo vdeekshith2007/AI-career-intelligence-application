@@ -68,7 +68,7 @@ def _extract_candidate_skills(resume: Resume) -> set[str]:
     """Extract full set of normalized skills from parsed resume or raw text."""
     skills_set: set[str] = set()
 
-    # 1. Check parsed_data skills
+    # 1. Check parsed_data skills (JSON field, already in memory)
     if resume.parsed_data and isinstance(resume.parsed_data, dict):
         skills_block = resume.parsed_data.get("skills")
         if isinstance(skills_block, dict):
@@ -82,12 +82,6 @@ def _extract_candidate_skills(resume: Resume) -> set[str]:
         for sk in extracted.get("all", []):
             skills_set.add(_normalize_skill(str(sk)))
 
-    # 3. Check resume_skills relationship if populated
-    if hasattr(resume, "skills") and resume.skills:
-        for rs in resume.skills:
-            if hasattr(rs, "skill") and rs.skill and hasattr(rs.skill, "name"):
-                skills_set.add(_normalize_skill(rs.skill.name))
-
     return skills_set
 
 
@@ -95,13 +89,7 @@ def _extract_job_skills(job: Job) -> set[str]:
     """Extract required and preferred skills from a job listing."""
     job_skills: set[str] = set()
 
-    # 1. From job_skills relationship
-    if hasattr(job, "required_skills") and job.required_skills:
-        for js in job.required_skills:
-            if hasattr(js, "skill") and js.skill and hasattr(js.skill, "name"):
-                job_skills.add(_normalize_skill(js.skill.name))
-
-    # 2. Extract from requirements and description text
+    # Extract directly from title, requirements and description text (in memory)
     combined_text = f"{job.title} {job.requirements or ''} {job.description or ''}"
     extracted = extract_skills(combined_text)
     for sk in extracted.get("all", []):
