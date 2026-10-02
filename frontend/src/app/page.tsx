@@ -53,12 +53,20 @@ export default function Home() {
   const [traceLogs, setTraceLogs] = useState<ApiTraceRecord[]>([]);
   const [isTracing, setIsTracing] = useState(false);
 
-  const [token, setToken] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("ai_career_token");
+  const [mounted, setMounted] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const storedToken = localStorage.getItem("ai_career_token");
+      if (storedToken) {
+        setToken(storedToken);
+      }
+    } catch {
+      // LocalStorage access restricted or unavailable
     }
-    return null;
-  });
+  }, []);
 
   const handleLogout = useCallback(async () => {
     if (token) {
@@ -70,7 +78,11 @@ export default function Home() {
     }
     setToken(null);
     setCurrentUser(null);
-    localStorage.removeItem("ai_career_token");
+    try {
+      localStorage.removeItem("ai_career_token");
+    } catch {
+      // ignore
+    }
   }, [token]);
 
   // Load resources when token updates
@@ -417,6 +429,19 @@ export default function Home() {
       setIsTracing(false);
     }
   };
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center font-sans">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-violet-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/25 animate-pulse">
+            <span className="font-extrabold text-white text-xl tracking-wider">CI</span>
+          </div>
+          <p className="text-sm text-slate-400 font-medium">Loading AI Career Intelligence...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
