@@ -1,9 +1,13 @@
 # ============================================================
 # AI Career Intelligence — Render.com Blueprint
-# Deploys: PostgreSQL + FastAPI Backend
+# Deploys: PostgreSQL + FastAPI Backend + Next.js Frontend
 # ============================================================
 
 services:
+  # ============================================================
+  # Backend: FastAPI (Python)
+  # URL: https://ai-career-backend-codr.onrender.com
+  # ============================================================
   - type: web
     name: ai-career-backend
     runtime: docker
@@ -31,7 +35,7 @@ services:
         value: "60"
       - key: REFRESH_TOKEN_EXPIRE_DAYS
         value: "7"
-      # Render provides DATABASE_URL as postgres:// — we rewrite it to asyncpg below
+      # Render provides DATABASE_URL as postgres:// — session.py rewrites to asyncpg
       - key: DATABASE_URL
         fromDatabase:
           name: ai-career-db
@@ -52,19 +56,38 @@ services:
         value: "/app/data/uploads"
       - key: MAX_UPLOAD_SIZE_MB
         value: "10"
+      # Set your actual Gemini API key in the Render dashboard
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
         value: "gemini-2.0-flash"
       - key: HF_EMBEDDING_MODEL
         value: "sentence-transformers/all-MiniLM-L6-v2"
-      # Set this AFTER frontend deploys to Vercel (your-app.vercel.app)
+      # CORS: Include both the deployed frontend and local dev
       - key: CORS_ORIGINS
-        sync: false
+        value: '["https://ai-career-intelligence-frontend.onrender.com","http://localhost:3000","http://127.0.0.1:3000"]'
       - key: ADMIN_EMAIL
         sync: false
       - key: ADMIN_PASSWORD
         generateValue: true
+
+  # ============================================================
+  # Frontend: Next.js (Node.js / Docker)
+  # URL: https://ai-career-intelligence-frontend.onrender.com
+  # ============================================================
+  - type: web
+    name: ai-career-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    region: oregon
+    healthCheckPath: /
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: "https://ai-career-backend-codr.onrender.com/api/v1"
+      - key: NODE_ENV
+        value: production
 
 databases:
   - name: ai-career-db

@@ -17,7 +17,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Accept build-time public environment variable
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+# In Render, set NEXT_PUBLIC_API_URL env var to point to deployed backend
+ARG NEXT_PUBLIC_API_URL=https://ai-career-backend-codr.onrender.com/api/v1
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
@@ -47,7 +48,7 @@ USER nextjs
 EXPOSE 3000
 
 # Container healthcheck using lightweight wget
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
 
 # Production command using Next.js standalone server

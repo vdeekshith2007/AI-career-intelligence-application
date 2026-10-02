@@ -41,6 +41,13 @@ async def on_startup() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("✅ Database schema initialized successfully")
+
+        # Seed initial job listings if table is empty
+        from app.db.seed_data import seed_jobs_if_empty
+        from app.db.session import async_session_factory
+
+        async with async_session_factory() as session:
+            await seed_jobs_if_empty(session)
     except Exception as exc:
         logger.warning(f"⚠️ Database schema initialization postponed or skipped: {exc}")
 

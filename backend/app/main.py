@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.v1.router import api_v1_router
 from app.config import get_settings
@@ -35,12 +35,26 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
         description="AI-powered career intelligence platform with resume analysis, job matching, and personalized guidance.",
-        version="0.1.0",
-        docs_url="/docs" if not settings.is_production else None,
-        redoc_url="/redoc" if not settings.is_production else None,
-        openapi_url="/openapi.json" if not settings.is_production else None,
+        version="1.0.0",
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
         lifespan=lifespan,
     )
+
+    # --- Root endpoint: API gateway info ---
+    @app.get("/", include_in_schema=False, tags=["Root"])
+    async def root() -> JSONResponse:
+        """API root — returns service info and health status."""
+        return JSONResponse({
+            "service": settings.APP_NAME,
+            "version": "1.0.0",
+            "status": "online",
+            "environment": settings.APP_ENV,
+            "api": "/api/v1",
+            "health": "/api/v1/health",
+            "docs": "/docs",
+        })
 
     # --- Global Unhandled Exception Handler (Prevents stack trace / information leakage) ---
     @app.exception_handler(Exception)

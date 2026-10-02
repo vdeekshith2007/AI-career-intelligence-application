@@ -5,6 +5,9 @@ Provides the async engine, session factory, and a FastAPI dependency
 for injecting database sessions into route handlers.
 """
 
+import os
+import socket
+import subprocess
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
@@ -17,12 +20,11 @@ from app.config import get_settings
 
 settings = get_settings()
 
-import os
-import socket
-import subprocess
 
 # --- Normalize DATABASE_URL for asyncpg & WSL environment ---
 def _resolve_db_url(url: str) -> str:
+    """Normalize the database URL for asyncpg compatibility and WSL2 support."""
+    # Render.com provides postgres:// — rewrite to asyncpg-compatible form
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
     elif url.startswith("postgresql://") and "+asyncpg" not in url:
@@ -47,22 +49,32 @@ def _resolve_db_url(url: str) -> str:
                         test_sock.settimeout(0.5)
                         test_sock.connect((wsl_ip, 5432))
                         test_sock.close()
-                        url = url.replace("@localhost:5432", f"@{wsl_ip}:5432").replace("@127.0.0.1:5432", f"@{wsl_ip}:5432")
+                        url = url.replace("@localhost:5432", f"@{wsl_ip}:5432").replace(
+                            "@127.0.0.1:5432", f"@{wsl_ip}:5432"
+                        )
                         break
                 except Exception:
                     continue
     return url
 
+
 _db_url = _resolve_db_url(settings.DATABASE_URL)
 
 # --- Async Engine ---
+# Pool settings optimized for Render.com free tier (max ~25 DB connections)
+# Production: pool_size=5, max_overflow=5  → max 10 concurrent connections
+# Local dev: same settings to stay consistent
 engine = create_async_engine(
     _db_url,
     echo=settings.DATABASE_ECHO,
-    pool_size=20,
-    max_overflow=10,
+    pool_size=5,
+    max_overflow=5,
     pool_pre_ping=True,
-    pool_recycle=3600,
+    pool_recycle=1800,   # Recycle every 30 min to avoid stale connections
+    pool_timeout=30,     # Wait up to 30s for a free connection
+    connect_args={
+        "server_settings": {"application_name": "ai_career_intelligence"},
+    } if "asyncpg" in _db_url else {},
 )
 
 # --- Session Factory ---

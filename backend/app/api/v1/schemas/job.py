@@ -30,7 +30,7 @@ class JobResponse(BaseModel):
 
 
 class JobListItem(BaseModel):
-    """Compact job for list views."""
+    """Compact job for list views and AI recommendations."""
 
     id: UUID
     title: str
@@ -41,6 +41,11 @@ class JobListItem(BaseModel):
     experience_level: str
     is_active: bool
     posted_at: datetime | None = None
+    match_score: float | None = None
+    score_breakdown: dict[str, Any] | None = None
+    matching_skills: list[str] | None = None
+    missing_skills: list[str] | None = None
+    recommendation: str | None = None
 
     model_config = {"from_attributes": True}
 
