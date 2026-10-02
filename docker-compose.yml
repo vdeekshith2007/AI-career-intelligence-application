@@ -1,0 +1,165 @@
+# ============================================================
+# AI Career Intelligence — Production Docker Compose
+# ============================================================
+
+services:
+  # ------------------------------------------------------------
+  # 1. PostgreSQL Database
+  # ------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: career-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ai_career_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ai_career_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - app-network
+
+  # ------------------------------------------------------------
+  # 2. Redis Cache & Job Broker
+  # ------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: career-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - app-network
+
+  # ------------------------------------------------------------
+  # 3. ChromaDB Vector Store
+  # ------------------------------------------------------------
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: career-chromadb
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    ports:
+      - "${CHROMA_PORT:-8001}:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - app-network
+
+  # ------------------------------------------------------------
+  # 4. Backend API (FastAPI)
+  # ------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: career-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_NAME: "AI Career Intelligence"
+      APP_ENV: production
+      DEBUG: "false"
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      SECRET_KEY: ${SECRET_KEY:-cryptographically-secure-key-at-least-32-chars-long-2026}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-ai_career_db}
+      DATABASE_ECHO: "false"
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: 8000
+      CHROMA_PERSIST_DIR: /app/data/chromadb
+      UPLOAD_DIR: /app/data/uploads
+      MAX_UPLOAD_SIZE_MB: 10
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      HF_EMBEDDING_MODEL: ${HF_EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      CORS_ORIGINS: '["http://localhost:3000", "http://127.0.0.1:3000", "http://frontend:3000"]'
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@enterprise-career.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-EnterpriseStrongPassword2026!#}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - backend_uploads:/app/data/uploads
+      - backend_chroma:/app/data/chromadb
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - app-network
+
+  # ------------------------------------------------------------
+  # 5. Frontend UI (Next.js Standalone)
+  # ------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    container_name: career-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - app-network
+
+# ------------------------------------------------------------
+# Persistent Storage Volumes
+# ------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  chroma_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  backend_chroma:
+    driver: local
+
+# ------------------------------------------------------------
+# Isolated Bridge Network
+# ------------------------------------------------------------
+networks:
+  app-network:
+    driver: bridge

@@ -1,0 +1,38 @@
+# ============================================================
+# Git Ignore - Backend
+# ============================================================
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+ai_career_intelligence.egg-info/
+build/
+dist/
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Pytest & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases & uploads
+data/
+uploads/
+chromadb/
+*.sqlite
+*.sqlite3
+*.db
+*.zip
