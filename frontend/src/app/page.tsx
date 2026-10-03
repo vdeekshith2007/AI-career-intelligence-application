@@ -148,24 +148,44 @@ export default function Home() {
     const init = async () => {
       setJobsLoading(true);
       try {
-        const [user, resumeList, allJobs, recJobs, sessions] = await Promise.all([
-          api.getMe(token), api.listResumes(token), api.listJobs(token),
-          api.getJobRecommendations(token), api.listChatSessions(token),
+        // Authenticate user identity first
+        const user = await api.getMe(token);
+        if (!active) return;
+        setCurrentUser(user);
+
+        // Load dashboard and auxiliary data resiliently
+        const [resumesRes, jobsRes, recsRes, sessionsRes] = await Promise.allSettled([
+          api.listResumes(token),
+          api.listJobs(token),
+          api.getJobRecommendations(token),
+          api.listChatSessions(token),
         ]);
         if (!active) return;
-        setCurrentUser(user); setResumes(resumeList); setJobs(allJobs);
-        setRecommendedJobs(recJobs); setChatSessions(sessions);
-        if (sessions.length > 0) {
-          setCurrentSessionId(sessions[0].id);
-          const h = await api.getChatHistory(token, sessions[0].id);
-          if (active) setMessages(h.messages);
+
+        if (resumesRes.status === "fulfilled") setResumes(resumesRes.value);
+        if (jobsRes.status === "fulfilled") setJobs(jobsRes.value);
+        if (recsRes.status === "fulfilled") setRecommendedJobs(recsRes.value);
+        if (sessionsRes.status === "fulfilled") {
+          const sessions = sessionsRes.value;
+          setChatSessions(sessions);
+          if (sessions.length > 0) {
+            setCurrentSessionId(sessions[0].id);
+            try {
+              const h = await api.getChatHistory(token, sessions[0].id);
+              if (active) setMessages(h.messages);
+            } catch {}
+          }
         }
       } catch {
         if (active) {
-          setToken(null); setCurrentUser(null);
+          // Only clear session if getMe failed (invalid/expired token)
+          setToken(null);
+          setCurrentUser(null);
           try { localStorage.removeItem("ai_career_token"); } catch {}
         }
-      } finally { if (active) setJobsLoading(false); }
+      } finally {
+        if (active) setJobsLoading(false);
+      }
     };
     void init();
     return () => { active = false; };
@@ -334,7 +354,17 @@ export default function Home() {
                   Sign Out
                 </button>
               </div>
-            ) : <span className="text-xs text-slate-400 hidden sm:block">Not authenticated</span>}
+            ) : authLoading ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-medium">
+                <span className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                <span>Signing In...</span>
+              </div>
+            ) : (
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/40 border border-slate-700/50 text-xs text-slate-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+                <span>Secure Portal</span>
+              </div>
+            )}
           </div>
         </div>
       </header>
