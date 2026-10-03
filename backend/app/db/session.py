@@ -30,31 +30,30 @@ def _resolve_db_url(url: str) -> str:
     elif url.startswith("postgresql://") and "+asyncpg" not in url:
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-    # In local development on Windows, check if localhost:5432 is directly reachable.
-    # If not, resolve the WSL2 IP where Docker PostgreSQL is running.
+    # In local development on Windows, resolve WSL2 IP if Docker PostgreSQL is running there
     if ("@localhost:5432" in url or "@127.0.0.1:5432" in url) and os.name == "nt":
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
-        try:
-            sock.connect(("127.0.0.1", 5432))
-            sock.close()
-        except Exception:
-            for cmd in [["wsl", "-d", "Ubuntu", "hostname", "-I"], ["wsl", "hostname", "-I"]]:
-                try:
-                    out = subprocess.check_output(cmd, text=True, timeout=1.5).strip()
-                    ips = out.split()
-                    if ips:
-                        wsl_ip = ips[0]
-                        test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        test_sock.settimeout(0.5)
-                        test_sock.connect((wsl_ip, 5432))
-                        test_sock.close()
-                        url = url.replace("@localhost:5432", f"@{wsl_ip}:5432").replace(
-                            "@127.0.0.1:5432", f"@{wsl_ip}:5432"
-                        )
-                        break
-                except Exception:
-                    continue
+        wsl_ip = None
+        for cmd in [["wsl", "-d", "Ubuntu", "hostname", "-I"], ["wsl", "hostname", "-I"]]:
+            try:
+                out = subprocess.check_output(cmd, text=True, timeout=2.0).strip()
+                ips = out.split()
+                if ips:
+                    candidate_ip = ips[0]
+                    test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    test_sock.settimeout(0.5)
+                    test_sock.connect((candidate_ip, 5432))
+                    test_sock.close()
+                    wsl_ip = candidate_ip
+                    break
+            except Exception:
+                continue
+
+        if wsl_ip:
+            url = url.replace("@localhost:5432", f"@{wsl_ip}:5432").replace(
+                "@127.0.0.1:5432", f"@{wsl_ip}:5432"
+            )
+        else:
+            url = url.replace("@localhost:5432", "@127.0.0.1:5432")
     return url
 
 
