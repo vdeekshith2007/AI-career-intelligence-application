@@ -86,9 +86,20 @@ async function main() {
     shell: true,
   });
 
+  // Keep WSL Ubuntu alive so Docker PostgreSQL doesn't idle out on Windows
+  let wslKeepalive = null;
+  if (process.platform === "win32") {
+    try {
+      wslKeepalive = spawn("wsl", ["-d", "Ubuntu", "-u", "root", "sleep", "infinity"], { stdio: "ignore" });
+    } catch (_) {}
+  }
+
   // Handle graceful exit
   function cleanup() {
     console.log("\n🛑 Shutting down development servers...");
+    if (wslKeepalive) {
+      try { wslKeepalive.kill(); } catch (_) {}
+    }
     if (backendProc) backendProc.kill();
     frontendProc.kill();
     process.exit(0);

@@ -30,30 +30,43 @@ def _resolve_db_url(url: str) -> str:
     elif url.startswith("postgresql://") and "+asyncpg" not in url:
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-    # In local development on Windows, resolve WSL2 IP if Docker PostgreSQL is running there
+    # In local development on Windows, resolve the correct host for PostgreSQL.
+    # wslrelay (127.0.0.1:5432) may appear to listen but rejects asyncpg connections —
+    # we probe ALL IPs from `wsl hostname -I` plus 127.0.0.1 and pick the first that
+    # accepts a TCP connection on port 5432 (using connect_ex to avoid exceptions).
     if ("@localhost:5432" in url or "@127.0.0.1:5432" in url) and os.name == "nt":
-        wsl_ip = None
+        candidates: list[str] = []
+
+        # Collect all WSL IPs (eth0 + docker bridges, etc.)
         for cmd in [["wsl", "-d", "Ubuntu", "hostname", "-I"], ["wsl", "hostname", "-I"]]:
             try:
                 out = subprocess.check_output(cmd, text=True, timeout=2.0).strip()
-                ips = out.split()
-                if ips:
-                    candidate_ip = ips[0]
-                    test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    test_sock.settimeout(0.5)
-                    test_sock.connect((candidate_ip, 5432))
-                    test_sock.close()
-                    wsl_ip = candidate_ip
+                candidates.extend(ip for ip in out.split() if ip)
+                break
+            except Exception:
+                continue
+
+        # Add 127.0.0.1 as a final fallback candidate
+        if "127.0.0.1" not in candidates:
+            candidates.append("127.0.0.1")
+
+        resolved_ip: str | None = None
+        for ip in candidates:
+            try:
+                test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                test_sock.settimeout(1.0)
+                result = test_sock.connect_ex((ip, 5432))
+                test_sock.close()
+                if result == 0:
+                    resolved_ip = ip
                     break
             except Exception:
                 continue
 
-        if wsl_ip:
-            url = url.replace("@localhost:5432", f"@{wsl_ip}:5432").replace(
-                "@127.0.0.1:5432", f"@{wsl_ip}:5432"
+        if resolved_ip:
+            url = url.replace("@localhost:5432", f"@{resolved_ip}:5432").replace(
+                "@127.0.0.1:5432", f"@{resolved_ip}:5432"
             )
-        else:
-            url = url.replace("@localhost:5432", "@127.0.0.1:5432")
     return url
 
 
