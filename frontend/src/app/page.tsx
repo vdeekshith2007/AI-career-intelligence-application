@@ -88,9 +88,9 @@ function StatCard({ label, value, sub, color, icon }: { label: string; value: st
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [authEmail, setAuthEmail] = useState("alex.dev@example.com");
-  const [authPassword, setAuthPassword] = useState("Password123!");
-  const [authFullName, setAuthFullName] = useState("Alex Developer");
+  const [authEmail, setAuthEmail] = useState("vataparthideekshith18@gmail.com");
+  const [authPassword, setAuthPassword] = useState("Deekshith@807");
+  const [authFullName, setAuthFullName] = useState("Vataparthi Deekshith");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "resumes" | "jobs" | "chat" | "tracer">("dashboard");
@@ -382,6 +382,12 @@ export default function Home() {
                 <p className="text-sm text-slate-400">{authMode === "login" ? "Access your AI-powered career analytics." : "Start analyzing resumes and matching jobs."}</p>
               </div>
               <div className="p-8 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-2xl backdrop-blur-xl">
+                {authMode === "login" && (
+                  <div className="mb-5 p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs">
+                    <span className="font-semibold text-indigo-200">🔑 Demo credentials pre-filled.</span>{" "}
+                    Hit Sign In to explore the platform, or register a new account.
+                  </div>
+                )}
                 {authError && (
                   <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex gap-2">
                     <span>⚠️</span><span>{authError}</span>
