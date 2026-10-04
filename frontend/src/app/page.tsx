@@ -119,7 +119,37 @@ export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline" | "waking">("checking");
-  const [backendWaking, setBackendWaking] = useState(false);
+  const [warmupProgress, setWarmupProgress] = useState(0); // 0-100 for progress bar
+  const [warmupSecondsLeft, setWarmupSecondsLeft] = useState(0);
+
+  // Poll backend health until it is online, updating a progress bar.
+  const pollUntilOnline = useCallback(async () => {
+    const MAX_WAIT = 90;  // seconds
+    const INTERVAL = 5;   // poll every 5s
+    let elapsed = 0;
+    setApiStatus("waking");
+    setWarmupProgress(0);
+    setWarmupSecondsLeft(MAX_WAIT);
+    const tick = setInterval(() => {
+      elapsed += 1;
+      const pct = Math.min(Math.round((elapsed / MAX_WAIT) * 100), 95);
+      setWarmupProgress(pct);
+      setWarmupSecondsLeft(Math.max(MAX_WAIT - elapsed, 0));
+    }, 1000);
+    let online = false;
+    while (elapsed < MAX_WAIT) {
+      await new Promise(r => setTimeout(r, INTERVAL * 1000));
+      try {
+        const r = await fetch(`${api.getBaseUrl()}/health`);
+        if (r.ok) { online = true; break; }
+      } catch { /* still sleeping */ }
+    }
+    clearInterval(tick);
+    setWarmupProgress(100);
+    setWarmupSecondsLeft(0);
+    setApiStatus(online ? "online" : "offline");
+    return online;
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -127,33 +157,27 @@ export default function Home() {
       const t = localStorage.getItem("ai_career_token");
       if (t) setToken(t);
     } catch {}
-    // Warm up backend — Render free tier sleeps after 15min of inactivity.
-    // We ping with a timeout; if it fails, mark as waking and retry.
+
+    // Immediate warmup ping (fast 6s timeout)
     const warmup = async () => {
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
+        const timeout = setTimeout(() => controller.abort(), 6000);
         const r = await fetch(`${api.getBaseUrl()}/health`, { signal: controller.signal });
         clearTimeout(timeout);
-        setApiStatus(r.ok ? "online" : "offline");
-      } catch {
-        // Backend likely in cold sleep — start wake-up and retry in 55s
-        setApiStatus("waking");
-        setBackendWaking(true);
-        setTimeout(async () => {
-          try {
-            const r = await fetch(`${api.getBaseUrl()}/health`);
-            setApiStatus(r.ok ? "online" : "offline");
-          } catch {
-            setApiStatus("offline");
-          } finally {
-            setBackendWaking(false);
-          }
-        }, 55000);
-      }
+        if (r.ok) { setApiStatus("online"); return; }
+      } catch { /* timed out = backend sleeping */ }
+      // Backend is asleep — start polling warmup
+      void pollUntilOnline();
     };
     void warmup();
-  }, []);
+
+    // Keep-alive: ping every 13 minutes so backend never sleeps while tab is open
+    const keepAlive = setInterval(() => {
+      fetch(`${api.getBaseUrl()}/health`).catch(() => {});
+    }, 13 * 60 * 1000);
+    return () => clearInterval(keepAlive);
+  }, [pollUntilOnline]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -216,10 +240,18 @@ export default function Home() {
   }, [token]);
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setAuthLoading(true); setAuthError(null);
+    e.preventDefault();
+    // If backend still waking, wait for it first (poll)
+    if (apiStatus === "waking" || apiStatus === "checking") {
+      const ok = await pollUntilOnline();
+      if (!ok) {
+        setAuthError("Backend is unavailable. Please try again in a moment.");
+        return;
+      }
+    }
+    setAuthLoading(true); setAuthError(null);
     console.log(`[Auth] Submitting ${authMode} for: ${authEmail}`);
-
-    const attemptLogin = async () => {
+    try {
       if (authMode === "register") {
         console.log("[Auth] Registering user...");
         await api.register({ email: authEmail, password: authPassword, full_name: authFullName });
@@ -233,29 +265,25 @@ export default function Home() {
       const user = await api.getMe(tokenRes.access_token);
       setCurrentUser(user);
       console.log(`[Auth] Logged in successfully as ${user.email} (${user.role})`);
-    };
-
-    try {
-      await attemptLogin();
     } catch (err: unknown) {
       const errMsg = (err as { message?: string })?.message || "";
-      // Auto-retry once if backend was cold-sleeping (Failed to fetch / network error)
-      if (errMsg.toLowerCase().includes("failed to fetch") || errMsg.toLowerCase().includes("unable to connect") || (err as { status?: number })?.status === 0) {
-        console.warn("[Auth] Backend cold start detected, waiting 60s then retrying...");
-        setApiStatus("waking");
-        setBackendWaking(true);
-        setAuthError("⏳ Backend is waking up from sleep (Render free tier). Auto-retrying in ~60 seconds...");
-        await new Promise(resolve => setTimeout(resolve, 62000));
-        setAuthError(null);
-        setBackendWaking(false);
+      // Network error = backend went cold again mid-session, retry once
+      if (errMsg.toLowerCase().includes("failed to fetch") || errMsg.toLowerCase().includes("networkerror")) {
+        console.warn("[Auth] Network error on login attempt, polling backend...");
+        const ok = await pollUntilOnline();
+        if (!ok) {
+          setAuthError("Cannot reach the server. Please try again.");
+          setAuthLoading(false);
+          return;
+        }
         try {
-          await attemptLogin();
-          setApiStatus("online");
+          const tokenRes = await api.login({ email: authEmail, password: authPassword });
+          setToken(tokenRes.access_token);
+          localStorage.setItem("ai_career_token", tokenRes.access_token);
+          const user = await api.getMe(tokenRes.access_token);
+          setCurrentUser(user);
         } catch (retryErr: unknown) {
-          const retryMsg = (retryErr as { message?: string })?.message || "Authentication failed.";
-          console.error("[Auth] Retry also failed:", retryMsg);
-          setAuthError(retryMsg);
-          setApiStatus("offline");
+          setAuthError((retryErr as { message?: string })?.message || "Authentication failed.");
         }
       } else {
         console.error("[Auth] Authentication error:", errMsg, err);
@@ -455,6 +483,25 @@ export default function Home() {
                     Hit Sign In to explore the platform, or register a new account.
                   </div>
                 )}
+                {/* Backend warmup progress bar */}
+                {apiStatus === "waking" && (
+                  <div className="mb-5 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+                      <span className="text-xs font-semibold text-amber-200">Backend Waking Up</span>
+                      <span className="ml-auto text-[11px] text-amber-400/70 tabular-nums">{warmupSecondsLeft}s</span>
+                    </div>
+                    <p className="text-[11px] text-amber-400/80 mb-2.5">
+                      The server was idle (Render free tier). It&apos;s starting up — sign in will be enabled automatically.
+                    </p>
+                    <div className="w-full bg-amber-900/40 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="h-1.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all duration-1000"
+                        style={{ width: `${warmupProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
                 {authError && (
                   <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex gap-2">
                     <span>⚠️</span><span>{authError}</span>
@@ -478,9 +525,25 @@ export default function Home() {
                     <input id="input-password" type="password" required value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
                       className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-sm focus:border-indigo-500 focus:outline-none transition" placeholder="••••••••" />
                   </div>
-                  <button id="btn-auth-submit" type="submit" disabled={authLoading}
-                    className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-sm transition-all shadow-lg shadow-indigo-600/30 disabled:opacity-50 cursor-pointer mt-2">
-                    {authLoading ? "Authenticating..." : authMode === "login" ? "Sign In" : "Create Account"}
+                  <button id="btn-auth-submit" type="submit"
+                    disabled={authLoading || apiStatus === "waking" || apiStatus === "checking"}
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-sm transition-all shadow-lg shadow-indigo-600/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer mt-2">
+                    {authLoading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                        Authenticating...
+                      </span>
+                    ) : apiStatus === "waking" ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="h-3.5 w-3.5 rounded-full border-2 border-white/50 border-t-transparent animate-spin" />
+                        Waiting for backend... ({warmupSecondsLeft}s)
+                      </span>
+                    ) : apiStatus === "checking" ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="h-3.5 w-3.5 rounded-full border-2 border-white/50 border-t-transparent animate-spin" />
+                        Connecting...
+                      </span>
+                    ) : authMode === "login" ? "Sign In" : "Create Account"}
                   </button>
                 </form>
                 <div className="mt-5 text-center text-xs text-slate-400">
