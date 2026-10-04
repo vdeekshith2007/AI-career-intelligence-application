@@ -10,16 +10,26 @@ const BACKEND_URL =
 // Strip trailing /api/v1 if present so we can construct the right destination
 const BACKEND_BASE = BACKEND_URL.replace(/\/api\/v1\/?$/, "");
 
+// Static export mode for Render Static Site deployment
+// When OUTPUT_MODE=export, builds to `out/` directory for static hosting
+const isStaticExport = process.env.OUTPUT_MODE === "export";
+
 const nextConfig: NextConfig = {
-  output: "standalone",
-  async rewrites() {
-    return [
-      {
-        source: "/api/v1/:path*",
-        destination: `${BACKEND_BASE}/api/v1/:path*`,
-      },
-    ];
-  },
+  output: isStaticExport ? "export" : "standalone",
+  // Static export doesn't support rewrites, so skip them in that mode
+  ...(isStaticExport
+    ? {}
+    : {
+        async rewrites() {
+          return [
+            {
+              source: "/api/v1/:path*",
+              destination: `${BACKEND_BASE}/api/v1/:path*`,
+            },
+          ];
+        },
+      }),
 };
 
 export default nextConfig;
+

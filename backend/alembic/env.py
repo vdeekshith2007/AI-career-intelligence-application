@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -22,25 +23,28 @@ if config.config_file_name is not None:
 from app.models import Base  # noqa: F401 — triggers all model imports via __init__
 target_metadata = Base.metadata
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+
+def _get_db_url() -> str:
+    """
+    Get the database URL from environment, normalizing it for asyncpg.
+    Render provides DATABASE_URL as postgres:// which must be rewritten.
+    """
+    url = (
+        os.environ.get("DATABASE_URL")
+        or config.get_main_option("sqlalchemy.url", "")
+        or "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_career_db"
+    )
+    # Normalize Render's postgres:// → postgresql+asyncpg://
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
-    url = config.get_main_option("sqlalchemy.url")
+    """Run migrations in 'offline' mode."""
+    url = _get_db_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -62,11 +66,15 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     """In this scenario we need to create an Engine
     and associate a connection with the context.
-
     """
+    url = _get_db_url()
+
+    # Build a config section dict with the resolved URL
+    cfg_section = config.get_section(config.config_ini_section, {})
+    cfg_section["sqlalchemy.url"] = url
 
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        cfg_section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

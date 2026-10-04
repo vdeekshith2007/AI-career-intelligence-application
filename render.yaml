@@ -72,20 +72,26 @@ services:
         generateValue: true
 
   # ============================================================
-  # Frontend: Next.js (Node.js / Docker)
+  # Frontend: Next.js Static Export
   # URL: https://ai-career-intelligence-frontend.onrender.com
+  # Built as static export (output: export) and served as a static site
+  # Build command: npm ci && OUTPUT_MODE=export NEXT_PUBLIC_API_URL=... npm run build
+  # Publish directory: frontend/out
   # ============================================================
   - type: web
     name: ai-career-frontend
-    runtime: docker
-    dockerfilePath: ./frontend/Dockerfile
-    dockerContext: ./frontend
+    runtime: static
     plan: free
     region: oregon
-    healthCheckPath: /
+    rootDir: frontend
+    buildCommand: "npm ci && OUTPUT_MODE=export npm run build"
+    staticPublishPath: out
+    pullRequestPreviewsEnabled: false
     envVars:
       - key: NEXT_PUBLIC_API_URL
         value: "https://ai-career-backend-codr.onrender.com/api/v1"
+      - key: OUTPUT_MODE
+        value: "export"
       - key: NODE_ENV
         value: production
 
