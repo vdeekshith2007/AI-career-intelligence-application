@@ -9,9 +9,7 @@
 // If not set (e.g. running as static export or missing build arg), fall back to the production backend.
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined" && window.location.hostname !== "localhost"
-    ? "https://ai-career-backend-codr.onrender.com/api/v1"
-    : "http://localhost:8000/api/v1");
+  "https://ai-career-backend-codr.onrender.com/api/v1";
 
 export interface ApiError {
   status: number;
