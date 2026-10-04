@@ -7,7 +7,7 @@
     "dev": "node scripts/dev.js",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "backend\\.venv\\Scripts\\uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --app-dir backend",
-    "build": "cd frontend && npm run build",
+    "build": "cd frontend && npm install && npm run build && node -e \"const fs=require('fs'); ['out','dist'].forEach(d => { try { fs.cpSync('frontend/' + d, d, {recursive:true,force:true}); } catch(e){} });\"",
     "start": "cd frontend && npm run start"
   }
 }
