@@ -118,7 +118,8 @@ export default function Home() {
   const [isTracing, setIsTracing] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState<string | null>(null);
-  const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
+  const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline" | "waking">("checking");
+  const [backendWaking, setBackendWaking] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -126,9 +127,32 @@ export default function Home() {
       const t = localStorage.getItem("ai_career_token");
       if (t) setToken(t);
     } catch {}
-    fetch(`${api.getBaseUrl()}/health`)
-      .then((r) => setApiStatus(r.ok ? "online" : "offline"))
-      .catch(() => setApiStatus("offline"));
+    // Warm up backend — Render free tier sleeps after 15min of inactivity.
+    // We ping with a timeout; if it fails, mark as waking and retry.
+    const warmup = async () => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const r = await fetch(`${api.getBaseUrl()}/health`, { signal: controller.signal });
+        clearTimeout(timeout);
+        setApiStatus(r.ok ? "online" : "offline");
+      } catch {
+        // Backend likely in cold sleep — start wake-up and retry in 55s
+        setApiStatus("waking");
+        setBackendWaking(true);
+        setTimeout(async () => {
+          try {
+            const r = await fetch(`${api.getBaseUrl()}/health`);
+            setApiStatus(r.ok ? "online" : "offline");
+          } catch {
+            setApiStatus("offline");
+          } finally {
+            setBackendWaking(false);
+          }
+        }, 55000);
+      }
+    };
+    void warmup();
   }, []);
 
   useEffect(() => {
@@ -194,7 +218,8 @@ export default function Home() {
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setAuthLoading(true); setAuthError(null);
     console.log(`[Auth] Submitting ${authMode} for: ${authEmail}`);
-    try {
+
+    const attemptLogin = async () => {
       if (authMode === "register") {
         console.log("[Auth] Registering user...");
         await api.register({ email: authEmail, password: authPassword, full_name: authFullName });
@@ -208,11 +233,37 @@ export default function Home() {
       const user = await api.getMe(tokenRes.access_token);
       setCurrentUser(user);
       console.log(`[Auth] Logged in successfully as ${user.email} (${user.role})`);
+    };
+
+    try {
+      await attemptLogin();
     } catch (err: unknown) {
-      const errMsg = (err as { message?: string })?.message || "Authentication failed.";
-      console.error("[Auth] Authentication error:", errMsg, err);
-      setAuthError(errMsg);
-    } finally { setAuthLoading(false); }
+      const errMsg = (err as { message?: string })?.message || "";
+      // Auto-retry once if backend was cold-sleeping (Failed to fetch / network error)
+      if (errMsg.toLowerCase().includes("failed to fetch") || errMsg.toLowerCase().includes("unable to connect") || (err as { status?: number })?.status === 0) {
+        console.warn("[Auth] Backend cold start detected, waiting 60s then retrying...");
+        setApiStatus("waking");
+        setBackendWaking(true);
+        setAuthError("⏳ Backend is waking up from sleep (Render free tier). Auto-retrying in ~60 seconds...");
+        await new Promise(resolve => setTimeout(resolve, 62000));
+        setAuthError(null);
+        setBackendWaking(false);
+        try {
+          await attemptLogin();
+          setApiStatus("online");
+        } catch (retryErr: unknown) {
+          const retryMsg = (retryErr as { message?: string })?.message || "Authentication failed.";
+          console.error("[Auth] Retry also failed:", retryMsg);
+          setAuthError(retryMsg);
+          setApiStatus("offline");
+        }
+      } else {
+        console.error("[Auth] Authentication error:", errMsg, err);
+        setAuthError(errMsg || "Authentication failed.");
+      }
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleAnalyzeResume = async (resumeId: string) => {
@@ -326,8 +377,15 @@ export default function Home() {
               <span className="font-bold text-lg bg-gradient-to-r from-white via-slate-200 to-indigo-300 bg-clip-text text-transparent">AI Career Intelligence</span>
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">v1.0</span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${apiStatus === "online" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : apiStatus === "offline" ? "bg-rose-500/10 text-rose-400 border-rose-500/20" : "bg-slate-700/50 text-slate-400 border-slate-700"}`}>
-                  {apiStatus === "checking" ? "⟳ Checking" : apiStatus === "online" ? "● API Online" : "● API Offline"}
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${
+                  apiStatus === "online" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                  apiStatus === "offline" ? "bg-rose-500/10 text-rose-400 border-rose-500/20" :
+                  apiStatus === "waking" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                  "bg-slate-700/50 text-slate-400 border-slate-700"}`}>
+                  {apiStatus === "checking" ? "⟳ Checking" :
+                   apiStatus === "online" ? "● API Online" :
+                   apiStatus === "waking" ? "⟳ API Waking..." :
+                   "● API Offline"}
                 </span>
               </div>
             </div>
@@ -823,8 +881,15 @@ export default function Home() {
                     <p className="text-xs text-slate-400 mt-0.5">Live end-to-end API trace across all subsystems.</p>
                   </div>
                   <div className="flex gap-3 items-center">
-                    <div className={`px-3 py-1.5 rounded-full text-xs font-medium border ${apiStatus === "online" ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/40" : apiStatus === "offline" ? "bg-rose-950/40 text-rose-400 border-rose-800/40" : "bg-slate-800 text-slate-400 border-slate-700"}`}>
-                      {apiStatus === "online" ? "● Backend Online" : apiStatus === "offline" ? "● Backend Offline" : "Checking..."}
+                    <div className={`px-3 py-1.5 rounded-full text-xs font-medium border ${
+                      apiStatus === "online" ? "bg-emerald-950/40 text-emerald-400 border-emerald-800/40" :
+                      apiStatus === "offline" ? "bg-rose-950/40 text-rose-400 border-rose-800/40" :
+                      apiStatus === "waking" ? "bg-amber-950/40 text-amber-400 border-amber-800/40" :
+                      "bg-slate-800 text-slate-400 border-slate-700"}`}>
+                      {apiStatus === "online" ? "● Backend Online" :
+                       apiStatus === "offline" ? "● Backend Offline" :
+                       apiStatus === "waking" ? "⟳ Backend Waking Up..." :
+                       "Checking..."}
                     </div>
                     <button id="btn-run-trace" onClick={runLiveIntegrationTrace} disabled={isTracing}
                       className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold disabled:opacity-50 cursor-pointer transition flex items-center gap-2">
