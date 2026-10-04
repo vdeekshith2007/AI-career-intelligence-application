@@ -2,6 +2,7 @@
 Authentication endpoints.
 """
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
@@ -29,6 +30,7 @@ from app.core.security import (
 from app.db.session import get_async_session
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 settings = get_settings()
 
@@ -45,11 +47,13 @@ async def register(
 ):
     """Create a new user account."""
     normalized_email = payload.email.lower().strip()
+    logger.info("Registration attempt for email: %s", normalized_email)
 
     # Check if email already exists
     result = await db.execute(select(User).where(User.email == normalized_email))
     existing = result.scalar_one_or_none()
     if existing:
+        logger.warning("Registration rejected — email already exists: %s", normalized_email)
         raise AlreadyExistsException("User", "email")
 
     user = User(
@@ -61,6 +65,7 @@ async def register(
     await db.flush()
     await db.refresh(user)
 
+    logger.info("User registered successfully: %s (id: %s)", normalized_email, user.id)
     return user
 
 
@@ -75,19 +80,23 @@ async def login(
 ):
     """Authenticate user and return JWT token pair."""
     normalized_email = payload.email.lower().strip()
+    logger.info("Login attempt for email: %s", normalized_email)
 
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(payload.password, user.password_hash):
+        logger.warning("Failed login attempt for email: %s (user_exists=%s)", normalized_email, bool(user))
         raise UnauthorizedException("Invalid email or password.")
 
     if not user.is_active:
+        logger.warning("Login rejected — account deactivated: %s", normalized_email)
         raise UnauthorizedException("Account is deactivated.")
 
     access_token = create_access_token(user.id)
     refresh_token = create_refresh_token(user.id)
 
+    logger.info("Login successful for user: %s (id: %s)", normalized_email, user.id)
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,

@@ -42,15 +42,19 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # --- Root endpoint: API gateway info ---
+    # --- Root endpoint: API gateway info & browser redirect ---
     @app.get("/", include_in_schema=False, tags=["Root"])
-    async def root() -> JSONResponse:
-        """API root — returns service info and health status."""
+    async def root(request: Request):
+        """API root — returns service info or redirects browsers to the frontend portal."""
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept and settings.APP_ENV == "development":
+            return RedirectResponse(url="http://localhost:3000", status_code=307)
         return JSONResponse({
             "service": settings.APP_NAME,
             "version": "1.0.0",
             "status": "online",
             "environment": settings.APP_ENV,
+            "frontend": "http://localhost:3000",
             "api": "/api/v1",
             "health": "/api/v1/health",
             "docs": "/docs",

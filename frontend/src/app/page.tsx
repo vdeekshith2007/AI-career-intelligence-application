@@ -193,16 +193,25 @@ export default function Home() {
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setAuthLoading(true); setAuthError(null);
+    console.log(`[Auth] Submitting ${authMode} for: ${authEmail}`);
     try {
-      if (authMode === "register")
+      if (authMode === "register") {
+        console.log("[Auth] Registering user...");
         await api.register({ email: authEmail, password: authPassword, full_name: authFullName });
+      }
+      console.log("[Auth] Authenticating with backend...");
       const tokenRes = await api.login({ email: authEmail, password: authPassword });
+      console.log("[Auth] Token received successfully.");
       setToken(tokenRes.access_token);
       localStorage.setItem("ai_career_token", tokenRes.access_token);
+      console.log("[Auth] Loading user profile...");
       const user = await api.getMe(tokenRes.access_token);
       setCurrentUser(user);
+      console.log(`[Auth] Logged in successfully as ${user.email} (${user.role})`);
     } catch (err: unknown) {
-      setAuthError((err as { message?: string })?.message || "Authentication failed.");
+      const errMsg = (err as { message?: string })?.message || "Authentication failed.";
+      console.error("[Auth] Authentication error:", errMsg, err);
+      setAuthError(errMsg);
     } finally { setAuthLoading(false); }
   };
 

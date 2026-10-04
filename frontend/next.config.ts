@@ -16,6 +16,7 @@ const isStaticExport = process.env.OUTPUT_MODE === "export";
 
 const nextConfig: NextConfig = {
   output: isStaticExport ? "export" : "standalone",
+  trailingSlash: isStaticExport,
   // Static export doesn't support rewrites, so skip them in that mode
   ...(isStaticExport
     ? {}
