@@ -75,11 +75,11 @@ services:
   # Frontend: Next.js Static Export
   # URL: https://ai-career-intelligence-frontend.onrender.com
   # Built as static export (output: export) and served as a static site
-  # Build command: npm ci && OUTPUT_MODE=export NEXT_PUBLIC_API_URL=... npm run build
+  # Build command: npm ci && OUTPUT_MODE=export npm run build
   # Publish directory: frontend/out
   # ============================================================
   - type: web
-    name: ai-career-frontend
+    name: ai-career-intelligence-frontend
     runtime: static
     plan: free
     region: oregon
@@ -87,7 +87,17 @@ services:
     buildCommand: "npm ci && OUTPUT_MODE=export npm run build"
     staticPublishPath: out
     pullRequestPreviewsEnabled: false
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
+      - key: NODE_VERSION
+        value: "20.18.0"
       - key: NEXT_PUBLIC_API_URL
         value: "https://ai-career-backend-codr.onrender.com/api/v1"
       - key: OUTPUT_MODE
