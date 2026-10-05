@@ -84,7 +84,7 @@ services:
     plan: free
     region: oregon
     rootDir: frontend
-    buildCommand: "npm ci && OUTPUT_MODE=export npm run build"
+    buildCommand: "npm ci && OUTPUT_MODE=export npm run build && echo '=== BUILD OK ===' && ls -la out/"
     staticPublishPath: out
     pullRequestPreviewsEnabled: false
     headers:
@@ -92,8 +92,9 @@ services:
         name: Cache-Control
         value: no-cache, no-store, must-revalidate
     routes:
-      # SPA catch-all: serve index.html for all paths not found as static files.
-      # /login redirects to / via client-side redirect in login/page.tsx.
+      # Render serves flat .html files natively (trailingSlash: false).
+      # login.html is served for /login automatically.
+      # Catch-all: fallback for any path that isn't a static file.
       - type: rewrite
         source: /*
         destination: /index.html

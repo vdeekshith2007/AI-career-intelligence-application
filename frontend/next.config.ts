@@ -16,7 +16,9 @@ const isStaticExport = process.env.OUTPUT_MODE === "export";
 
 const nextConfig: NextConfig = {
   output: isStaticExport ? "export" : "standalone",
-  trailingSlash: isStaticExport,
+  // Always false: static export generates login.html (not login/index.html)
+  // Render can serve flat .html files directly without needing directory routing
+  trailingSlash: false,
   // Static export doesn't support rewrites, so skip them in that mode
   ...(isStaticExport
     ? {}
