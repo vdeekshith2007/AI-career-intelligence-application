@@ -92,17 +92,8 @@ services:
         name: Cache-Control
         value: no-cache, no-store, must-revalidate
     routes:
-      # Serve each generated HTML page directly from its own file
-      - type: rewrite
-        source: /
-        destination: /index.html
-      - type: rewrite
-        source: /login
-        destination: /login/index.html
-      - type: rewrite
-        source: /login/
-        destination: /login/index.html
-      # Fallback: any unmatched route goes to root (SPA catch-all)
+      # SPA catch-all: serve index.html for all paths not found as static files.
+      # /login redirects to / via client-side redirect in login/page.tsx.
       - type: rewrite
         source: /*
         destination: /index.html
