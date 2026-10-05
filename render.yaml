@@ -67,7 +67,7 @@ services:
       - key: CORS_ORIGINS
         value: '["https://ai-career-intelligence-frontend.onrender.com","http://localhost:3000","http://127.0.0.1:3000"]'
       - key: ADMIN_EMAIL
-        sync: false
+        value: "admin@ai-career-intelligence.app"
       - key: ADMIN_PASSWORD
         generateValue: true
 
