@@ -98,15 +98,6 @@ def _resolve_db_url(url: str) -> str:
             url = url.replace("@localhost:5432", f"@{resolved_ip}:5432").replace(
                 "@127.0.0.1:5432", f"@{resolved_ip}:5432"
             )
-            # Keep WSL alive in background so Docker container never idles out
-            try:
-                subprocess.Popen(
-                    ["wsl", "-d", "Ubuntu", "-u", "root", "sleep", "infinity"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except Exception:
-                pass
     return url
 
 
