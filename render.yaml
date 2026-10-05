@@ -78,7 +78,7 @@ services:
   # Build command: npm ci && OUTPUT_MODE=export npm run build
   # Publish directory: frontend/out
   # ============================================================
-  - type: web
+  - type: static
     name: ai-career-intelligence-frontend
     runtime: static
     plan: free
