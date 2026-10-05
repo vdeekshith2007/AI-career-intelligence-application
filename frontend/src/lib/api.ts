@@ -258,7 +258,12 @@ class ApiClient {
         errorDetail = await response.text();
       }
 
-      console.error(`[API Error ${response.status}] ${method} ${url}:`, errorDetail);
+      // 401/403 = expected auth states (expired token, no permission) — warn, not error
+      if (response.status === 401 || response.status === 403) {
+        console.warn(`[API ${response.status}] ${method} ${url}:`, errorDetail);
+      } else {
+        console.error(`[API Error ${response.status}] ${method} ${url}:`, errorDetail);
+      }
       const err: ApiError = {
         status: response.status,
         message: typeof errorDetail === "string" ? errorDetail : JSON.stringify(errorDetail),
@@ -267,7 +272,10 @@ class ApiClient {
       throw err;
     }
 
-    console.log(`[API Response 200] ${method} ${url}`);
+    // Only log non-auth responses in development to reduce noise
+    if (process.env.NODE_ENV === "development") {
+      console.log(`[API 200] ${method} ${url}`);
+    }
     return response.json() as Promise<T>;
   }
 
