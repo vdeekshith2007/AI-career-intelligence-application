@@ -63,10 +63,50 @@ def _resolve_db_url(url: str) -> str:
             except Exception:
                 continue
 
+        # If not resolved, attempt to start the PostgreSQL container in WSL and re-probe
+        if not resolved_ip:
+            for start_cmd in [
+                ["wsl", "-d", "Ubuntu", "-u", "root", "docker", "start", "career-db"],
+                ["wsl", "-u", "root", "docker", "start", "career-db"],
+            ]:
+                try:
+                    subprocess.run(
+                        start_cmd,
+                        timeout=6.0,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    import time
+                    time.sleep(1.5)
+                    for ip in candidates:
+                        try:
+                            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            test_sock.settimeout(1.0)
+                            result = test_sock.connect_ex((ip, 5432))
+                            test_sock.close()
+                            if result == 0:
+                                resolved_ip = ip
+                                break
+                        except Exception:
+                            continue
+                    if resolved_ip:
+                        break
+                except Exception:
+                    continue
+
         if resolved_ip:
             url = url.replace("@localhost:5432", f"@{resolved_ip}:5432").replace(
                 "@127.0.0.1:5432", f"@{resolved_ip}:5432"
             )
+            # Keep WSL alive in background so Docker container never idles out
+            try:
+                subprocess.Popen(
+                    ["wsl", "-d", "Ubuntu", "-u", "root", "sleep", "infinity"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass
     return url
 
 

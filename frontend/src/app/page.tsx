@@ -123,32 +123,18 @@ export default function Home() {
   const [warmupSecondsLeft, setWarmupSecondsLeft] = useState(0);
 
   // Poll backend health until it is online, updating a progress bar.
+  // Uses centralized ApiClient.waitForBackend coordinator to prevent duplicate loops & race conditions.
   const pollUntilOnline = useCallback(async () => {
-    const MAX_WAIT = 90;  // seconds
-    const INTERVAL = 5;   // poll every 5s
-    let elapsed = 0;
     setApiStatus("waking");
-    setWarmupProgress(0);
-    setWarmupSecondsLeft(MAX_WAIT);
-    const tick = setInterval(() => {
-      elapsed += 1;
-      const pct = Math.min(Math.round((elapsed / MAX_WAIT) * 100), 95);
+    const ok = await api.waitForBackend((elapsed, max) => {
+      const pct = Math.min(Math.round((elapsed / max) * 100), 95);
       setWarmupProgress(pct);
-      setWarmupSecondsLeft(Math.max(MAX_WAIT - elapsed, 0));
-    }, 1000);
-    let online = false;
-    while (elapsed < MAX_WAIT) {
-      await new Promise(r => setTimeout(r, INTERVAL * 1000));
-      try {
-        const r = await fetch(`${api.getBaseUrl()}/health`);
-        if (r.ok) { online = true; break; }
-      } catch { /* still sleeping */ }
-    }
-    clearInterval(tick);
+      setWarmupSecondsLeft(Math.max(max - elapsed, 0));
+    }, 75, 3000);
     setWarmupProgress(100);
     setWarmupSecondsLeft(0);
-    setApiStatus(online ? "online" : "offline");
-    return online;
+    setApiStatus(ok ? "online" : "offline");
+    return ok;
   }, []);
 
   useEffect(() => {
@@ -158,16 +144,14 @@ export default function Home() {
       if (t) setToken(t);
     } catch {}
 
-    // Immediate warmup ping (fast 6s timeout)
+    // Immediate warmup ping (gentle 4s timeout)
     const warmup = async () => {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 6000);
-        const r = await fetch(`${api.getBaseUrl()}/health`, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (r.ok) { setApiStatus("online"); return; }
-      } catch { /* timed out = backend sleeping */ }
-      // Backend is asleep — start polling warmup
+      const isOnline = await api.checkHealth(4000);
+      if (isOnline) {
+        setApiStatus("online");
+        return;
+      }
+      // Backend is asleep on Render free tier — start gentle background polling
       void pollUntilOnline();
     };
     void warmup();
@@ -241,17 +225,11 @@ export default function Home() {
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // If backend still waking, wait for it first (poll)
-    if (apiStatus === "waking" || apiStatus === "checking") {
-      const ok = await pollUntilOnline();
-      if (!ok) {
-        setAuthError("Backend is unavailable. Please try again in a moment.");
-        return;
-      }
-    }
-    setAuthLoading(true); setAuthError(null);
-    console.log(`[Auth] Submitting ${authMode} for: ${authEmail}`);
-    try {
+    setAuthLoading(true);
+    setAuthError(null);
+
+    // Helper to perform the actual auth API call and load user session
+    const performAuth = async () => {
       if (authMode === "register") {
         console.log("[Auth] Registering user...");
         await api.register({ email: authEmail, password: authPassword, full_name: authFullName });
@@ -264,27 +242,61 @@ export default function Home() {
       console.log("[Auth] Loading user profile...");
       const user = await api.getMe(tokenRes.access_token);
       setCurrentUser(user);
+      setApiStatus("online");
       console.log(`[Auth] Logged in successfully as ${user.email} (${user.role})`);
-    } catch (err: unknown) {
-      const errMsg = (err as { message?: string })?.message || "";
-      // Network error = backend went cold again mid-session, retry once
-      if (errMsg.toLowerCase().includes("failed to fetch") || errMsg.toLowerCase().includes("networkerror")) {
-        console.warn("[Auth] Network error on login attempt, polling backend...");
+    };
+
+    try {
+      // If we already know the backend is waking up, wait for it before sending credentials
+      if (apiStatus === "waking" || apiStatus === "checking") {
         const ok = await pollUntilOnline();
         if (!ok) {
-          setAuthError("Cannot reach the server. Please try again.");
-          setAuthLoading(false);
+          setAuthError("The backend took too long to wake up. Please click Sign In to try again.");
+          return;
+        }
+      }
+
+      await performAuth();
+    } catch (err: unknown) {
+      const errObj = err as { status?: number; message?: string };
+      const status = errObj.status ?? -1;
+      const errMsg = errObj.message || "";
+
+      // Cold start / Network error detection:
+      // Status 0 or fetch failure indicates backend is asleep on Render free tier
+      const isNetworkError =
+        status === 0 ||
+        errMsg.toLowerCase().includes("failed to fetch") ||
+        errMsg.toLowerCase().includes("networkerror") ||
+        errMsg.toLowerCase().includes("unable to connect");
+
+      if (isNetworkError) {
+        console.warn("[Auth] Cold start detected during auth request. Waiting for backend to wake...");
+        const ok = await pollUntilOnline();
+        if (!ok) {
+          setAuthError("The backend server took too long to wake up. Please click Sign In to try again.");
           return;
         }
         try {
-          const tokenRes = await api.login({ email: authEmail, password: authPassword });
-          setToken(tokenRes.access_token);
-          localStorage.setItem("ai_career_token", tokenRes.access_token);
-          const user = await api.getMe(tokenRes.access_token);
-          setCurrentUser(user);
+          // Backend is now awake! Complete the auth request
+          await performAuth();
         } catch (retryErr: unknown) {
-          setAuthError((retryErr as { message?: string })?.message || "Authentication failed.");
+          const retryObj = retryErr as { status?: number; message?: string };
+          if (retryObj.status === 401) {
+            setAuthError("Invalid email or password.");
+          } else {
+            setAuthError(retryObj.message || "Authentication failed. Please verify credentials.");
+          }
         }
+      } else if (status === 401) {
+        // Explicit 401: Invalid credentials — NEVER show "Backend Waking Up"
+        setAuthError("Invalid email or password.");
+      } else if (status === 403) {
+        setAuthError("Account is deactivated.");
+      } else if (status === 422) {
+        setAuthError("Invalid input. Please check the email and password.");
+      } else if (status >= 500) {
+        setAuthError("Internal server error. Please try again in a moment.");
       } else {
         console.error("[Auth] Authentication error:", errMsg, err);
         setAuthError(errMsg || "Authentication failed.");
@@ -488,11 +500,13 @@ export default function Home() {
                   <div className="mb-5 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
-                      <span className="text-xs font-semibold text-amber-200">Backend Waking Up</span>
+                      <span className="text-xs font-semibold text-amber-200">
+                        {authLoading ? "Waking Backend & Signing In..." : "Backend Waking Up"}
+                      </span>
                       <span className="ml-auto text-[11px] text-amber-400/70 tabular-nums">{warmupSecondsLeft}s</span>
                     </div>
                     <p className="text-[11px] text-amber-400/80 mb-2.5">
-                      The server was idle (Render free tier). It&apos;s starting up — sign in will be enabled automatically.
+                      The server was idle (Render free tier). It&apos;s starting up — you can click Sign In now to authenticate automatically once awake.
                     </p>
                     <div className="w-full bg-amber-900/40 rounded-full h-1.5 overflow-hidden">
                       <div
@@ -526,24 +540,18 @@ export default function Home() {
                       className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-sm focus:border-indigo-500 focus:outline-none transition" placeholder="••••••••" />
                   </div>
                   <button id="btn-auth-submit" type="submit"
-                    disabled={authLoading || apiStatus === "waking" || apiStatus === "checking"}
+                    disabled={authLoading}
                     className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-sm transition-all shadow-lg shadow-indigo-600/30 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer mt-2">
                     {authLoading ? (
                       <span className="flex items-center justify-center gap-2">
                         <span className="h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                        Authenticating...
+                        {apiStatus === "waking"
+                          ? `Waking backend... (${warmupSecondsLeft}s)`
+                          : "Authenticating..."}
                       </span>
-                    ) : apiStatus === "waking" ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <span className="h-3.5 w-3.5 rounded-full border-2 border-white/50 border-t-transparent animate-spin" />
-                        Waiting for backend... ({warmupSecondsLeft}s)
-                      </span>
-                    ) : apiStatus === "checking" ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <span className="h-3.5 w-3.5 rounded-full border-2 border-white/50 border-t-transparent animate-spin" />
-                        Connecting...
-                      </span>
-                    ) : authMode === "login" ? "Sign In" : "Create Account"}
+                    ) : (
+                      authMode === "login" ? "Sign In" : "Create Account"
+                    )}
                   </button>
                 </form>
                 <div className="mt-5 text-center text-xs text-slate-400">

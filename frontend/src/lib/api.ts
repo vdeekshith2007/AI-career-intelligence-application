@@ -151,6 +151,7 @@ export interface ApiTraceRecord {
 
 class ApiClient {
   private baseUrl: string;
+  private activeWakePromise: Promise<boolean> | null = null;
 
   constructor() {
     this.baseUrl = API_BASE.replace(/\/+$/, "");
@@ -158,6 +159,60 @@ class ApiClient {
 
   getBaseUrl(): string {
     return this.baseUrl;
+  }
+
+  /**
+   * Fast health probe with timeout. Never hangs indefinitely.
+   */
+  async checkHealth(timeoutMs: number = 6000): Promise<boolean> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(`${this.baseUrl}/health`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      clearTimeout(timer);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Centralized backend wake-up coordinator.
+   * Multiple callers (page load warmup, login click, retry) share a single
+   * in-flight promise to eliminate duplicate requests and race conditions.
+   */
+  async waitForBackend(
+    onProgress?: (elapsedSeconds: number, maxSeconds: number) => void,
+    maxWaitSeconds: number = 75,
+    intervalMs: number = 3000
+  ): Promise<boolean> {
+    if (this.activeWakePromise) {
+      return this.activeWakePromise;
+    }
+
+    this.activeWakePromise = (async () => {
+      const startTime = Date.now();
+      while ((Date.now() - startTime) / 1000 < maxWaitSeconds) {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        if (onProgress) {
+          onProgress(elapsed, maxWaitSeconds);
+        }
+        const isHealthy = await this.checkHealth(6000);
+        if (isHealthy) {
+          if (onProgress) onProgress(maxWaitSeconds, maxWaitSeconds);
+          return true;
+        }
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+      return false;
+    })().finally(() => {
+      this.activeWakePromise = null;
+    });
+
+    return this.activeWakePromise;
   }
 
   private async request<T>(
