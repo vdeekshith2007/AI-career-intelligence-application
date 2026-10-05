@@ -92,6 +92,17 @@ services:
         name: Cache-Control
         value: no-cache, no-store, must-revalidate
     routes:
+      # Serve each generated HTML page directly from its own file
+      - type: rewrite
+        source: /
+        destination: /index.html
+      - type: rewrite
+        source: /login
+        destination: /login/index.html
+      - type: rewrite
+        source: /login/
+        destination: /login/index.html
+      # Fallback: any unmatched route goes to root (SPA catch-all)
       - type: rewrite
         source: /*
         destination: /index.html
