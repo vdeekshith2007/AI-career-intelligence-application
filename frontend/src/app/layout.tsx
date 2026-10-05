@@ -7,6 +7,16 @@ export const metadata: Metadata = {
   title: "AI Career Intelligence | Smart ATS & Career Advisory",
   description:
     "AI-powered career intelligence platform with resume ATS scoring, job matching, and multi-agent career advice.",
+  openGraph: {
+    title: "AI Career Intelligence",
+    description: "Smart ATS scoring, job matching & AI career advisory.",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "AI Career Intelligence",
+    description: "Smart ATS scoring, job matching & AI career advisory.",
+  },
 };
 
 export default function RootLayout({
