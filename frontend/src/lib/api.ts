@@ -5,11 +5,13 @@
  * Handles authentication tokens, file uploads, JSON payloads, and structured error responses.
  */
 
+export const PROD_API_BASE = "https://ai-career-backend-codr.onrender.com/api/v1";
+
 // In production (Render), NEXT_PUBLIC_API_URL is baked in at build time via Dockerfile ARG.
 // If not set (e.g. running as static export or missing build arg), fall back to the production backend.
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
-  "https://ai-career-backend-codr.onrender.com/api/v1";
+  PROD_API_BASE;
 
 export interface ApiError {
   status: number;
@@ -163,6 +165,7 @@ class ApiClient {
 
   /**
    * Fast health probe with timeout. Never hangs indefinitely.
+   * If localhost is offline, automatically tests production Render backend as fallback.
    */
   async checkHealth(timeoutMs: number = 6000): Promise<boolean> {
     try {
@@ -173,10 +176,29 @@ class ApiClient {
         cache: "no-store",
       });
       clearTimeout(timer);
-      return res.ok;
+      if (res.ok) return true;
     } catch {
-      return false;
+      // If configured for localhost and localhost is offline, probe the live production backend
+      if (this.baseUrl.includes("localhost") || this.baseUrl.includes("127.0.0.1")) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), timeoutMs);
+          const res = await fetch(`${PROD_API_BASE}/health`, {
+            signal: controller.signal,
+            cache: "no-store",
+          });
+          clearTimeout(timer);
+          if (res.ok) {
+            console.log(`[API] Local backend unreachable. Switched to live Render backend: ${PROD_API_BASE}`);
+            this.baseUrl = PROD_API_BASE;
+            return true;
+          }
+        } catch {
+          // Both unreachable or asleep
+        }
+      }
     }
+    return false;
   }
 
   /**
@@ -240,13 +262,35 @@ class ApiClient {
         headers,
       });
     } catch (netErr: unknown) {
-      const errorMsg = (netErr as { message?: string })?.message || "Failed to fetch";
-      console.error(`[API Network Error] ${method} ${url}:`, errorMsg, netErr);
-      throw {
-        status: 0,
-        message: `Unable to connect to backend (${errorMsg}). If the service was idle, Render may be waking up from cold sleep (takes ~50s). Please retry in a moment.`,
-        detail: netErr,
-      };
+      // If localhost failed with network error, immediately fall back to live production backend
+      if (this.baseUrl.includes("localhost") || this.baseUrl.includes("127.0.0.1")) {
+        console.warn(`[API] Local backend at ${this.baseUrl} unreachable. Falling back to ${PROD_API_BASE}...`);
+        this.baseUrl = PROD_API_BASE;
+        const fallbackUrl = `${this.baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+        try {
+          console.log(`[API Request Fallback] ${method} ${fallbackUrl}`);
+          response = await fetch(fallbackUrl, {
+            ...options,
+            headers,
+          });
+        } catch (fallbackErr: unknown) {
+          const errorMsg = (fallbackErr as { message?: string })?.message || "Failed to fetch";
+          console.error(`[API Network Error] ${method} ${fallbackUrl}:`, errorMsg, fallbackErr);
+          throw {
+            status: 0,
+            message: `Unable to connect to backend (${errorMsg}). If the service was idle, Render may be waking up from cold sleep (takes ~50s). Please retry in a moment.`,
+            detail: fallbackErr,
+          };
+        }
+      } else {
+        const errorMsg = (netErr as { message?: string })?.message || "Failed to fetch";
+        console.error(`[API Network Error] ${method} ${url}:`, errorMsg, netErr);
+        throw {
+          status: 0,
+          message: `Unable to connect to backend (${errorMsg}). If the service was idle, Render may be waking up from cold sleep (takes ~50s). Please retry in a moment.`,
+          detail: netErr,
+        };
+      }
     }
 
     if (!response.ok) {

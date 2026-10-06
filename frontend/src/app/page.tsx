@@ -209,12 +209,16 @@ export default function Home() {
             } catch {}
           }
         }
-      } catch {
+      } catch (err: unknown) {
         if (active) {
-          // Only clear session if getMe failed (invalid/expired token)
-          setToken(null);
-          setCurrentUser(null);
-          try { localStorage.removeItem("ai_career_token"); } catch {}
+          const status = (err as { status?: number })?.status;
+          // Only clear session if getMe failed due to 401/403 (invalid or expired token)
+          // Never wipe credentials during transient cold starts / network wakeups (status 0)
+          if (status === 401 || status === 403) {
+            setToken(null);
+            setCurrentUser(null);
+            try { localStorage.removeItem("ai_career_token"); } catch {}
+          }
         }
       } finally {
         if (active) setJobsLoading(false);
