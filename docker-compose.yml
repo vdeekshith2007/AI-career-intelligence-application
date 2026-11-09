@@ -161,5 +161,7 @@ volumes:
 # Isolated Bridge Network
 # ------------------------------------------------------------
 networks:
+
+
   app-network:
     driver: bridge
